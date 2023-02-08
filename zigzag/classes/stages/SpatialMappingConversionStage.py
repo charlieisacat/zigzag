@@ -55,6 +55,8 @@ class SpatialMappingConversionStage(Stage):
         kwargs['accelerator'] = self.accelerator
         kwargs['layer'] = self.layer
 
+        print('user_spatial_mapping ', user_spatial_mapping, 'spatial_mapping ', spatial_mapping)
+
         sub_stage = self.list_of_callables[0](self.list_of_callables[1:], **kwargs)
         for cme, extra_info in sub_stage.run():
             yield cme, extra_info

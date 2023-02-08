@@ -36,5 +36,7 @@ mainstage = MainStage([  # Initializes the MainStage as entry point
     loma_show_progress_bar=True,  # shows a progress bar while iterating over temporal mappings
 )
 
+# 由当前执行的Stage负责调用下一个Stage，而非MainStage依次调用每个Stage
+
 # Launch the MainStage
 mainstage.run()

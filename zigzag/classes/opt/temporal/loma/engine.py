@@ -91,6 +91,7 @@ class LomaEngine:
 
         yielded = False
         for ordering in self.og():  # ordering generator
+            # print(ordering)
             allocator = MemoryAllocator(self.accelerator, self.layer, self.spatial_mapping, ordering)
             # using try catch here because in the depth-first mode the highest level might not be big enough
             try:
@@ -116,6 +117,8 @@ class LomaEngine:
         Get all loops that have to be temporally scheduled given layer and spatial mapping.
         """
         temporal_loop_dim_size = self.layer.loop_dim_size.copy()  # init with all loop sizes
+        print('temporal_loop_dim_size === before === ', temporal_loop_dim_size)
+        print('spatial_loop_dim_size === ', self.spatial_mapping.spatial_loop_dim_size)
         for spatial_loop in self.spatial_mapping.spatial_loop_dim_size:
             (spatial_loop_dim, spatial_loop_size) = spatial_loop
             # Allow greedy mapping. If the spatial unrolling is not a multiple of the layer dimension size,
@@ -127,15 +130,19 @@ class LomaEngine:
                 del temporal_loop_dim_size[spatial_loop_dim]
             else:
                 temporal_loop_dim_size[spatial_loop_dim] = q
+        print('temporal_loop_dim_size === after === ', temporal_loop_dim_size)
 
         # Remove all dimensions with a temporal loop size of 1
         temporal_loop_dim_size_no_1s = {key: val for (key, val) in temporal_loop_dim_size.items() if val > 1}
+        print('temporal_loop_dim_size === remove === ', temporal_loop_dim_size_no_1s, len(temporal_loop_dim_size_no_1s))
 
         self.temporal_loop_dim_size = temporal_loop_dim_size_no_1s
         min_nb_temporal_loops = len(self.temporal_loop_dim_size)
         if self.lpf_limit < min_nb_temporal_loops:
             logger.debug(f"Updated layer {self.layer}'s lpf limit from {self.lpf_limit} to {min_nb_temporal_loops} lpfs.")
             self.lpf_limit = min_nb_temporal_loops
+        
+        print("lpf_limit === ", self.lpf_limit)
 
     def get_prime_factors(self):
         """
@@ -152,6 +159,7 @@ class LomaEngine:
         lpfs = []
         for (tl_dim, tl_size) in self.temporal_loop_dim_size.items():  # tl = temporal loop
             factors = factorint(tl_size)
+            print('=== tl_dim ', tl_dim, 'tl_size ', tl_size, 'factors ', factors)
             pfs = []
             counts = []
             for pf, multiplicity in factors.items():
@@ -162,7 +170,6 @@ class LomaEngine:
             temporal_loop_pfs[tl_dim] = tuple(pfs)
             temporal_loop_pf_counts[tl_dim] = tuple(counts)
             temporal_loop_pf_count_sums[tl_dim] = sum(counts)
-
         # If there are no temporal LPFs generated, i.e. all loops are unrolled spatially,
         # we manually insert a loop of size 1
         if lpfs == []:
@@ -184,14 +191,18 @@ class LomaEngine:
 
         # Compute how many total permuatations we will have to consider
         self.compute_nb_permutations()
+        print("lpfs ===== ", self.lpfs, lpfs)
 
     def compute_nb_permutations(self):
         """Compute the number of permutations that will have to be considered given the LPF distribution.
         """
         nb_permutations = factorial(sum(self.temporal_loop_pf_count_sums.values()))
         for nb_pf_sum in self.temporal_loop_pf_count_sums.values():
+            temp = nb_permutations
             nb_permutations = int(nb_permutations / factorial(nb_pf_sum))
+            # print("======= ", temp, nb_pf_sum, factorial(nb_pf_sum), nb_permutations)
         self.nb_permutations = nb_permutations
+        # print('self.nb_permutations', self.nb_permutations)
         logger.debug(f"Launching {self.nb_permutations:,} temporal loop order permutations.")
         
 

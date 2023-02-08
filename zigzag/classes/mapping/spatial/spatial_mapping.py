@@ -67,15 +67,19 @@ class SpatialMapping:
         unroll_size_total = {op: [1] * arch_lv for (op, arch_lv) in self.arch_level.items()}
 
         ''' Go through the reformed spatial mapping and extract the unroll size '''
+        # mapping_dict_reform只包含unrolled的维度(ru, iru)
         for operand in self.operand_list:
             for level, current_level_loops in enumerate(self.mapping_dict_reform[operand]):
                 for loop_type, loop_dim in current_level_loops:
+                    # 如果unrolled的维度与operand相关，则把这些相关的维度累积
                     if loop_type in self.layer_node.operand_loop_dim_reform[operand]['r']:
                         unroll_size_r[operand][level] *= loop_dim
                     else:
                         unroll_size_ir[operand][level] *= loop_dim
+                    # 对所有进行unrolled的维度累积
                     unroll_size_total[operand][level] *= loop_dim
 
+        #每个level相关维度的乘积
         self.unroll_size_r = unroll_size_r
         self.unroll_size_ir = unroll_size_ir
         self.unroll_size_total = unroll_size_total
@@ -96,11 +100,13 @@ class SpatialMapping:
             f"The MAC level unit count is not the same for all operand {bottom_unit_count}, please correct the spatial mapping."
 
         ''' Number of unit at each level that hold unique data (for each operand) '''
+        # 相关说明该operand在这一维度被并行了，所以每个unit具有不同的数据
         unit_unique = {op: [
             prod(self.unroll_size_r[op][lv:self.arch_level[op]]) for lv in range(self.arch_level[op])
         ] for op in self.operand_list}
 
         ''' Number of unit at each level that hold the same data (for each operand) '''
+        # 不相关说明有复用的机会
         unit_duplicate = {op: [
             prod(self.unroll_size_ir[op][lv:self.arch_level[op]]) for lv in range(self.arch_level[op])
         ] for op in self.operand_list}
@@ -131,6 +137,7 @@ class SpatialMapping:
         NOTE: mem_bw_boost doesn't include MAC level, thus is one level less than other spatial mapping attributes.
         """
         ''' mem_bw_boost can calculated by either dividing unit_unique at current level by unit_count at one level above. '''
+        #因为unit_unique是向上累乘的(current and above level)，所以unique[lv]大于等于lv+1，boost>=1
         mem_bw_boost = {op: [
             int(self.unit_unique[op][lv]/self.unit_unique[op][lv+1]) for lv in range(self.arch_level[op]-1)
         ] for op in self.operand_list}

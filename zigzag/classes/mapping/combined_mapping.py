@@ -24,6 +24,7 @@ class FourWayDataMoving:
         self.info_list = [(self.rd_out_to_low, self.wr_in_by_low), (self.rd_out_to_high, self.wr_in_by_high)]
 
     def get_total_read_outs_to_above(self, scaling: float = 1):
+        # 被上一级内存读取的总次数
         """
         Return the total amount of times this memory interface is read from to the level above.
         If scaling is the energy cost per read, this returns the total read energy.
@@ -31,6 +32,7 @@ class FourWayDataMoving:
         return scaling * self.rd_out_to_high
 
     def get_total_read_outs_to_below(self, scaling: float = 1):
+        # 被下一级内存读取的总次数
         """
         Return the total amount of times this memory interface is read from to the level below.
         If scaling is the energy cost per read, this returns the total read energy.
@@ -38,6 +40,7 @@ class FourWayDataMoving:
         return scaling * self.rd_out_to_low
 
     def get_total_write_ins_from_above(self, scaling: float = 1):
+        # 被上一级内存写入的总次数
         """
         Return the total amount of times this memory interface is written to from the level above.
         If scaling is the energy cost per write, this returns the total read energy.
@@ -45,6 +48,7 @@ class FourWayDataMoving:
         return scaling * self.wr_in_by_high
 
     def get_total_write_ins_from_below(self, scaling: float = 1):
+        # 被下一级内存写入的总次数
         """
         Return the total amount of times this memory interface is written to from the level below.
         If scaling is the energy cost per write, this returns the total read energy.
@@ -245,11 +249,21 @@ class Mapping:
             for level, current_level_su_loops in enumerate(su_dict_seed[operand]):
                 current_level_tm_loops = tm_dict_seed[operand][level]
                 above_level_tm_loops = tm_dict_seed[operand][level + 1]
+                print('operand',operand,'level',level,'tm level', current_level_tm_loops, 'su level', current_level_su_loops, 'above tm level', above_level_tm_loops)
+                #同一个memory level的spatial和temporal mapping合并在一起
                 combined_mapping_dict_1s1t[operand][level] = current_level_tm_loops + current_level_su_loops
+                #spatial mapping和上一个level的temporal mapping合并在一起
                 combined_mapping_dict_1s2t[operand][level + 1] = above_level_tm_loops + current_level_su_loops
+                
+# operand W level 0 tm level [] su level [] above tm level [('FX', 11), ('K', 3), ('OY', 6), ('OY', 9)]
+# operand W level 1 tm level [('FX', 11), ('K', 3), ('OY', 6), ('OY', 9)] su level [('K', 32.0), ('C', 3.0)] above tm level [('FY', 11), ('OX', 54)]
+# operand W level 2 tm level [('FY', 11), ('OX', 54)] su level [] above tm level []
 
         self.combined_mapping_dict_1s1t = combined_mapping_dict_1s1t
         self.combined_mapping_dict_1s2t = combined_mapping_dict_1s2t
+
+        # print('1s1t===',combined_mapping_dict_1s1t)
+        # print('1s2t===',combined_mapping_dict_1s2t)
 
     def distinguish_output(self):
         """
@@ -297,9 +311,11 @@ class Mapping:
         """
         Given the combined mapping, generate r/ir loop size list at each level for each operand
         """
+        print('arch_level ====', self.spatial_mapping.arch_level)
         combined_mapping = self.combined_mapping_dict_1s1t_reform
         combined_mapping2 = self.combined_mapping_dict_1s2t_reform
         relevancy_table = self.layer_node.operand_loop_dim_reform
+        print('relevancy table ====', relevancy_table)
         r_loop_size_per_level = {
             op: [
                 prod([lp_dim for lp_type, lp_dim in combined_mapping[op][lv] if lp_type in relevancy_table[op]['r']])
@@ -312,8 +328,11 @@ class Mapping:
                 for lv in range(self.spatial_mapping.arch_level[op])
             ] for op in self.operand_list
         }
+        print('r1', r_loop_size_per_level)
+        print('r2',r_loop_size_per_level2)
         ir_loop_size_per_level = {
             op: [
+                #memory level内所有ir循环大小的乘积
                 prod([lp_dim for lp_type, lp_dim in combined_mapping[op][lv] if lp_type in relevancy_table[op]['ir']])
                 for lv in range(self.spatial_mapping.arch_level[op])
             ] for op in self.operand_list
@@ -324,9 +343,12 @@ class Mapping:
                 for lv in range(self.spatial_mapping.arch_level[op])
             ] for op in self.operand_list
         }
+        # print('mapping1 ===',combined_mapping,'mapping2 ===', combined_mapping2)
+        print('r_loop_size_per_level', r_loop_size_per_level)
 
         ''' current and below levels (cabl) r loop size '''
         r_loop_size_cabl = {
+            #当前memory level及以下所有循环大小的乘积
             op: [round(prod(r_loop_size_per_level[op][0:lv + 1]))
                  for lv in range(self.spatial_mapping.arch_level[op])]
             for op in self.operand_list
@@ -372,29 +394,37 @@ class Mapping:
         data_elem_per_level_unrolled: data size held inside of each unrolled unit at each architectural level
         data_elem_per_level: total data size at each architectural level (= data_elem_per_level_unrolled * unique unit count)
         """
+
+        # 每个内存层次中会被分配给不同unit的数据量 
+        # spatial loop与level + 1的temporal loop合并在一起，使得level中数据大小为individual data size，参考zigzag paper
         data_elem_per_level_unrolled = {
             op: [round(self.r_loop_size_cabl2[op][lv])
                  for lv in range(self.spatial_mapping.arch_level[op])]
             for op in self.operand_list
         }
+        print('==== data_elem_per_level_unrolled', data_elem_per_level_unrolled)
 
         data_bit_per_level_unrolled = {
             op: [round(self.r_loop_size_cabl2[op][lv]) * self.data_precision_dict[op][lv]
                  for lv in range(self.spatial_mapping.arch_level[op])]
             for op in self.operand_list
         }
+        print('==== data_bit_per_level_unrolled', data_bit_per_level_unrolled)
 
         data_elem_per_level = {
+            # unit_unique拥有不同数据的单元数量，某些unit会具有相同的数据
             op: [round(data_elem_unrolled * self.spatial_mapping.unit_unique[op][lv])
                  for lv, data_elem_unrolled in enumerate(data_elem_per_level_unrolled[op])]
             for op in self.operand_list
         }
+        print('==== data_elem_per_level', data_elem_per_level)
 
         data_bit_per_level = {
             op: [round(data_elem_unrolled * self.spatial_mapping.unit_unique[op][lv]) * self.data_precision_dict[op][lv]
                  for lv, data_elem_unrolled in enumerate(data_elem_per_level_unrolled[op])]
             for op in self.operand_list
         }
+        print('==== data_bit_per_level', data_bit_per_level)
 
         self.data_elem_per_level_unrolled = data_elem_per_level_unrolled
         self.data_bit_per_level_unrolled = data_bit_per_level_unrolled
@@ -411,6 +441,10 @@ class Mapping:
                  for lv, data_elem_unrolled in enumerate(self.data_elem_per_level_unrolled[op])]
             for op in self.operand_list
         }
+        for op in self.operand_list:
+            for lv, data_elem_unrolled in enumerate(self.data_elem_per_level_unrolled[op]):
+                print('******',data_elem_unrolled, self.temporal_mapping.top_r_loop_size[op][lv], data_elem_unrolled // self.temporal_mapping.top_r_loop_size[op][lv])
+        print(self.temporal_mapping.top_r_loop_size)
 
         effective_data_bit = {
             op: [data_bit_unrolled // self.temporal_mapping.top_r_loop_size[op][lv]
@@ -433,11 +467,16 @@ class Mapping:
         data_access_raw2: each memory levels' spatial loops are put to memory level + 1s' temporal loops location (combined_mapping_dict_1s2t)
         '''
         data_access_raw = {
-            op: [round(total_MAC_count / self.ir_loop_size_cabl[op][lv])
+            op: [round(total_MAC_count / self.ir_loop_size_cabl[op][lv]) # arch level，所以cabl的最低层为mac level
                  for lv in range(self.spatial_mapping.arch_level[op])]
             for op in self.operand_list
         }
+        for op in self.operand_list:
+            for lv in range(self.spatial_mapping.arch_level[op]):
+                print('op',op,'lv',lv,self.ir_loop_size_cabl[op][lv])
+
         data_access_raw2 = {
+            # data access = mac operation / data reuse factor
             op: [round(total_MAC_count / self.ir_loop_size_cabl2[op][lv])
                  for lv in range(self.spatial_mapping.arch_level[op])]
             for op in self.operand_list
@@ -448,14 +487,26 @@ class Mapping:
         ''' Distinguish read and write, unify input operands and output operand '''
         ''' For input operands '''
         for operand in self.layer_node.input_operands:
+            print("----------- mem_level ", self.mem_level[operand],'operand', operand,'arch level', self.spatial_mapping.arch_level[operand])
             for mem_level in range(self.mem_level[operand]):
                 unit_mem_data_movement = DataMovePattern(operand, mem_level)
 
                 ''' data access count '''
-                rd_out_to_low = data_access_raw[operand][mem_level]
+                # lower memory level需要的数据量，因为：
+                # raw的索引是arch level，这里mem_level=0（寄存器级）,对应的arch level=0，即为mac level
+                # 那么，data_access_raw[op][0]就是mac level需要的数据量
+                # rf level被读出的数据量是mac level需要的数据量
+                # 为什么不用raw2？
+                # 因为在raw2中，su被归入了higher mem level，导致data access偏低，raw2是individual data，还需要乘总的unit个数
+                rd_out_to_low = data_access_raw[operand][mem_level] 
                 wr_in_by_low = 0
                 rd_out_to_high = 0
-                wr_in_by_high = data_access_raw2[operand][mem_level + 1]
+                # 当mem_level=0时，arch_level=1,二者同为寄存器级，
+                # rf level的总数据量就是rf level被写入的数据量
+                # 为什么用raw2？
+                # 在不考虑spatial的情况下，raw和raw2应该是一样的
+                # 如果考虑spatial，raw2去除了su循环的数据量，这里计算的是individual data size
+                wr_in_by_high = data_access_raw2[operand][mem_level + 1] 
                 unit_mem_data_movement.set_data_elem_move_count(rd_out_to_low, wr_in_by_low,
                                                                 rd_out_to_high, wr_in_by_high)
                 ''' data precision '''
@@ -478,11 +529,29 @@ class Mapping:
             the first mem_level means the innermost memory level (e.g. register file level).'''
 
             ''' data access count '''
-            wr_in_by_low = data_access_raw[output_operand][mem_level]
+            # low -> current
+            # mem_level=0->rf level, arch_level=0->mac level
+            # lower mem level的大小就是写回的数据量 
+            wr_in_by_low = data_access_raw[output_operand][mem_level] # 
+            # current -> low
+            # psums?
+            # operand_size_elem：operand的总数
+            # mem_level=0 -> rf level
+            # arch level=1 -> rf level
+            # ir说明没有访问output，所以计算产生的是psum 
+            # 因为从current->low，所以总的psum个数需要统计current及以上
             rd_out_to_low = self.layer_node.operand_size_elem[output_operand] * \
                             (self.O_ir_loop_size_caal[mem_level + 1] - 1)
 
+            # current -> hight
+            # mem_level=0 -> rf level
+            # mem_level+1=1 -> arch_level=rf level
+            # 当前mem level的大小就是写回的数据量 
             rd_out_to_high = data_access_raw2[output_operand][mem_level + 1]
+            # high -> current
+            # mem_level=0 -> rf level
+            # arch level=2 -> gl level
+            # 因为是从high写入current，所以总的psum个数只统计high及以上即可
             wr_in_by_high = self.layer_node.operand_size_elem[output_operand] * \
                             (self.O_ir_loop_size_caal[mem_level + 2] - 1)
 
@@ -518,6 +587,8 @@ class Mapping:
         """
 
         ''' Add operational array level's 1 cycle in the below to align with the list length of data_each_level '''
+        # cycle_cabl_level:current and below level 所有temporal mapping循环长度的乘积
+        # arch level, 因为额外加了个1，代表mac level
         cycle_each_level = {op: [1] + self.temporal_mapping.cycle_cabl_level[op] for op in self.operand_list}
         data_each_level_unrolled = self.data_elem_per_level_unrolled
 
@@ -540,6 +611,9 @@ class Mapping:
                  for lv in range(self.spatial_mapping.arch_level[op])]
             for op in self.operand_list
         }
+        print(req_mem_bw_L_raw,'////////////')
+        print(mem_bw_boost_factor,'/////////')
+        print(req_mem_bw_H_raw,'////////////')
 
         """
         Calculates the average required memory bw.
@@ -550,15 +624,27 @@ class Mapping:
         for operand in self.layer_node.input_operands:
             for mem_level in range(self.mem_level[operand]):
                 ''' average required memory BW '''
-                rd_out_to_low_bw = req_mem_bw_H_raw[operand][mem_level]
+                #current -> low
+                # lvl: mac, rf, bg
+                # L_raw: a,b,c
+                # factor: 8,4,1
+                # H_raw: 8a,4b,c
+
+                #多个unit同时读，所以为8a
+                rd_out_to_low_bw = req_mem_bw_H_raw[operand][mem_level] 
                 wr_in_by_low_bw = 0
                 rd_out_to_high_bw = 0
-                wr_in_by_high_bw = req_mem_bw_L_raw[operand][mem_level + 1]
+                #high->current
+                #单个unit的带宽，所以为b
+                wr_in_by_high_bw = req_mem_bw_L_raw[operand][mem_level + 1] 
+
+                # mem level, not arch level
                 self.unit_mem_data_movement[operand][mem_level].set_req_mem_bw_aver(
                     rd_out_to_low_bw, wr_in_by_low_bw,
                     rd_out_to_high_bw, wr_in_by_high_bw
                 )
                 ''' data transfer period '''
+                # period的时间长度
                 rd_out_to_low_pd = cycle_each_level[operand][mem_level]
                 wr_in_by_low_pd = 0
                 rd_out_to_high_pd = 0
@@ -568,6 +654,8 @@ class Mapping:
                     rd_out_to_high_pd, wr_in_by_high_pd
                 )
                 ''' data transfer period count '''
+                #total_cycle：temporal mapping总时间
+                #这里计算的是period对应的数据传输的总次数
                 rd_out_to_low_pc = self.temporal_mapping.total_cycle // cycle_each_level[operand][mem_level]
                 wr_in_by_low_pc = 0
                 rd_out_to_high_pc = 0
@@ -577,10 +665,12 @@ class Mapping:
                     rd_out_to_high_pc, wr_in_by_high_pc
                 )
                 ''' per-period data transfer amount '''
+                #current->low， 所以需要individual数据量*并行度
                 rd_out_to_low_da = data_each_level_unrolled[operand][mem_level] * \
                                    mem_bw_boost_factor[operand][mem_level]
                 wr_in_by_low_da = 0
                 rd_out_to_high_da = 0
+                #high -> current，只需要individual数据量即可
                 wr_in_by_high_da = data_each_level_unrolled[operand][mem_level + 1]
 
                 self.unit_mem_data_movement[operand][mem_level].set_data_trans_amount_per_period(
@@ -591,8 +681,19 @@ class Mapping:
         ''' For output operand '''
         output_operand = self.layer_node.output_operand
         for mem_level in range(self.mem_level[output_operand]):
+            # lvl: mac, rf, bg
+            # L_raw: a,b,c
+            # factor: 8,4,1
+            # H_raw: 8a,4b,c
+
+            '''这里假设读写带宽相同??????'''
+            #low->current
+            # 多个unit同时写，所以为8a
             wr_in_by_low_bw = req_mem_bw_H_raw[output_operand][mem_level]
+            #current->high
+            #单个unit被读，b
             rd_out_to_high_bw = req_mem_bw_L_raw[output_operand][mem_level + 1]
+
             wr_in_by_low_pd = cycle_each_level[output_operand][mem_level]
             rd_out_to_high_pd = cycle_each_level[output_operand][mem_level + 1]
             wr_in_by_low_pc = self.temporal_mapping.total_cycle // cycle_each_level[output_operand][mem_level]
@@ -601,7 +702,9 @@ class Mapping:
                               mem_bw_boost_factor[output_operand][mem_level]
             rd_out_to_high_da = data_each_level_unrolled[output_operand][mem_level + 1]
 
+            # 使用psums的时候才会出现high->low的数据流动
             if self.psum_flag[mem_level]:
+                # cur->low, low->cur
                 rd_out_to_low_bw = wr_in_by_low_bw
                 rd_out_to_low_pd = wr_in_by_low_pd
                 rd_out_to_low_pc = wr_in_by_low_pc
@@ -613,6 +716,7 @@ class Mapping:
                 rd_out_to_low_da = 0
 
             if self.psum_flag[mem_level + 1]:
+                # high->cur, cur->high
                 wr_in_by_high_bw = rd_out_to_high_bw
                 wr_in_by_high_pd = rd_out_to_high_pd
                 wr_in_by_high_pc = rd_out_to_high_pc
@@ -647,11 +751,20 @@ class Mapping:
         """
         Calculate the instant memory updating behavior.
         """
+        # arch level, top_ir_loop_size[0] = 1
         top_ir_loop_size = self.temporal_mapping.top_ir_loop_size
         for operand in self.operand_list:
+            #mem level
             for level, data_movement_item in enumerate(self.unit_mem_data_movement[operand]):
                 req_mem_bw_aver = data_movement_item.req_mem_bw_aver
                 ''' calculate "instant required memory BW" based on "average required memory BW" '''
+                # 在不使用double buffer的情况下，数据只能在使用时被读取或写入
+                # 而使用double buffer则可以在整个循环的任何时间读取或写入，
+                # 能够使用的时间为原来的top_ir_loop_size/1，则所需带宽为原来的top_ir_loop_size倍
+
+                ''' 是否太激进了？？？？？, 这样做相当于ir循环全部被overlap了'''
+                #利用double buffer流线线的情况下,当top_ir_size比较小的时候比如ir 10, r 10000能够满足，但是较大时比如ir 10000, r 10无法满足？
+
                 rd_out_to_low_bw = req_mem_bw_aver.rd_out_to_low * top_ir_loop_size[operand][level]
                 wr_in_by_low_bw = req_mem_bw_aver.wr_in_by_low * top_ir_loop_size[operand][level]
                 rd_out_to_high_bw = req_mem_bw_aver.rd_out_to_high * top_ir_loop_size[operand][level + 1]

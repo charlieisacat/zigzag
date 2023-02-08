@@ -80,6 +80,7 @@ class MemoryAllocator:
         # self.nodes contains the different memory nodes in bottom-up fashion
         core_id = self.layer.core_allocation
         memory_hierarchy: MemoryHierarchy = self.accelerator.get_core(core_id).memory_hierarchy
+        #mem_ops: O, I2, I1
         top_levels = {mem_op: memory_hierarchy.get_operand_top_level(mem_op) for mem_op in self.mem_ops}
         nodes = memory_hierarchy.nodes
         for node in nodes:

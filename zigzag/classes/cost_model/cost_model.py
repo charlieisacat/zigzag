@@ -182,6 +182,7 @@ class CostModelEvaluation:
         self.mem_r_bw_dict, self.mem_w_bw_dict = accelerator.get_core(self.core_id).get_memory_bw_dict()
         self.mem_r_bw_min_dict, self.mem_w_bw_min_dict = accelerator.get_core(self.core_id).get_memory_bw_min_dict()
         self.mem_sharing_list = accelerator.get_core(self.core_id).get_memory_sharing_list()
+        # {'O': 'O', 'W': 'I2', 'I': 'I1'
         self.layer_op_to_mem_op = layer.memory_operand_links
         self.mem_op_to_layer_op = dict([(value, key) for key, value in self.layer_op_to_mem_op.items()])
 
@@ -266,6 +267,9 @@ class CostModelEvaluation:
             mem_utili_individual[layer_op] = []
             effective_mem_utili_individual[layer_op] = []
             for mem_lv in range(self.active_mem_level[layer_op]):
+                # print('mem_lv',mem_lv,'layer_op',layer_op)
+                # print('op',layer_op, 'mem_lv', mem_lv,'unrolled ==', self.mapping.data_bit_per_level_unrolled[layer_op][mem_lv + 1], 'size dict ==',
+                # self.mem_size_dict[self.layer_op_to_mem_op[layer_op]][mem_lv])
                 mem_utilization = self.mapping.data_bit_per_level_unrolled[layer_op][mem_lv + 1] / \
                                   self.mem_size_dict[self.layer_op_to_mem_op[layer_op]][mem_lv]
                 assert mem_utilization <= 1, f"Operand {layer_op} memory level {mem_lv}'s individual memory utilization is " \
@@ -273,6 +277,7 @@ class CostModelEvaluation:
                                              f"(memory level starts from 0)"
                 mem_utili_individual[layer_op].append(mem_utilization)
 
+                #没看懂？？
                 # if we do not count copied data in parallel memories as effective, what is the utilization then? =>
                 effective_mem_utilization = self.mapping.effective_data_bit[layer_op][mem_lv + 1] / \
                                             self.mem_size_dict[self.layer_op_to_mem_op[layer_op]][mem_lv]
@@ -315,11 +320,13 @@ class CostModelEvaluation:
             memory_word_access[layer_op] = []
             for mem_lv in range(self.mapping.mem_level[layer_op]):
                 ''' wr_in_by_low '''
+                # low -> current
+                # 如果是output，wr_in_by_low是indiv*factor。如果是I或W，wr_in_by_low是0
                 data_elem_move_per_period = self.mapping.unit_mem_data_movement[layer_op][mem_lv].data_trans_amount_per_period.wr_in_by_low
                 data_precision = self.mapping.unit_mem_data_movement[layer_op][mem_lv].data_precision.wr_in_by_low
                 if data_elem_move_per_period == 0 or data_precision == 0:
                     wr_in_by_low = 0
-                else:
+                else: # output
                     total_period_count = self.mapping.unit_mem_data_movement[layer_op][mem_lv].data_trans_period_count.wr_in_by_low
                     max_bw = self.mem_w_bw_dict[self.layer_op_to_mem_op[layer_op]][mem_lv]
                     min_bw = self.mem_w_bw_min_dict[self.layer_op_to_mem_op[layer_op]][mem_lv]

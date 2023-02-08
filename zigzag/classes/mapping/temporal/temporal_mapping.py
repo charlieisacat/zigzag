@@ -83,6 +83,8 @@ class TemporalMapping:
 
         self.mapping_dic_stationary = mapping_st
         self.MAC_level_data_stationary_cycle = MAC_level_st
+        print(self.mapping_dic_origin,'origin=======')
+        print(self.mapping_dic_stationary,'stationary=======')
 
     def calc_cycle_cabl_level(self):
         """
@@ -120,14 +122,21 @@ class TemporalMapping:
             1 for _ in range(self.mem_level[op] + 1)
         ] for op in self.operand_list}
 
+        #mapping_dic_stationary: mem_level
+        print('dic stationary ==== ',self.mapping_dic_stationary)
+        print('operand_loop dim ===', self.layer_node.operand_loop_dim)
+
         ''' Check and extract the top ir loops '''
         for operand in self.operand_list:
             for level, current_level_loops in enumerate(self.mapping_dic_stationary[operand]):
+                print('level ', level, 'current_level_loops', current_level_loops)
                 if not current_level_loops:
                     continue
                 else:
+                    # 当遇到第一个ir时break
                     for loop_type, loop_dim in reversed(current_level_loops):
                         if loop_type in self.layer_node.operand_loop_dim[operand]['r']:
+                            print(operand, loop_type, level+1, loop_dim,'----', self.layer_node.operand_loop_dim[operand])
                             top_r_loop_size[operand][level + 1] *= loop_dim
                         else:
                             break
